@@ -2,10 +2,11 @@
 RCA Projeto 2
 
 
-<h1>Compilacao</h1>
+# Compilacao
 make
 
 Cliente: ./cl [ip] [porta]
+
 Servidor: ./cs [porta]
 
 
