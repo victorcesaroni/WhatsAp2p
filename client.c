@@ -264,7 +264,7 @@ void init_server() {
 
 }
 
-// quando alguem conecta no nosso servidor local
+// thread responsavel por ler os comandos de peers externos conectados no nosso servidor local
 void *p2p_client_handler(void *p) {
 	struct user *c = (struct user*)p;
 	int s = c->socket;
@@ -277,12 +277,14 @@ void *p2p_client_handler(void *p) {
 		}
 		
 		if (raw_pkt.msg_type == MSG_HAND_SHAKE) {
+			// pacote de identificacao do peer, marca como conectado na lista de conexoes e atualiza o celular
 			struct packet_hand_shake *pkt = (struct packet_hand_shake*)&raw_pkt.data;
 			strcpy(c->celular, pkt->celular);
 			c->connected = 1;
 			c->port_p2p = pkt->port;
 			printf("%s [SP2P] RECV MSG_HAND_SHAKE celular:%s, conexao:%s:%d\n", __FUNCTION__,  c->celular, inet_ntoa(c->ip), c->port_p2p);
 		} else if (raw_pkt.msg_type == MSG_TEXT) {
+			// pacote de mensagem
 			struct packet_text *pkt = (struct packet_text*)&raw_pkt.data;
 			printf("%s [SP2P] RECV MSG_TEXT\n", __FUNCTION__);
 			printf("%s [SP2P] [MSG] %s: %s\n",  __FUNCTION__, c->celular, pkt->text);
@@ -299,6 +301,7 @@ void *p2p_client_handler(void *p) {
 	free(c);
 }
 
+// thread responsavel por aceitar conexoes de outros peers
 void *server_thread(void *p) {
 	struct sockaddr_in client;
 	int ns;
@@ -319,6 +322,7 @@ void *server_thread(void *p) {
 
 		printf("%s [SP2P] Recebendo conexao de %s:%d\n", __FUNCTION__,  inet_ntoa(client.sin_addr), ntohs(client.sin_port));
 
+		// insere peer na lista, mas nao marca como conectado ate receber o handshake
 		struct user *c = (struct user*)malloc(sizeof(struct user));
 		strcpy(c->celular, "test");
 		c->ip = client.sin_addr;
@@ -329,6 +333,7 @@ void *server_thread(void *p) {
 		inserir_lista(&g_cliente.lista_conexoes, (void*)c);
 		pthread_mutex_unlock(&lista_conexoes_lock);
 		
+		// dispara a thread para ler os comandos do peer que esta se conectando
 		if (pthread_create(&t, NULL, &p2p_client_handler, (void *)c)) {
 			perror("pthread_create()");
 			exit(8);
@@ -366,19 +371,24 @@ int main(int argc, char **argv) {
 
 	g_cliente.connected = 0;
 
+	// prepara a inicializacao do servidor que outros peers irao se conectar
 	init_server();
 
+	// dispara a thread que ira cuidar dos accepts dos peers que tentam se conectar
 	pthread_t t1;
 	if (pthread_create(&t1, NULL, &server_thread, NULL)) {
 		perror("pthread_create()");
 		exit(8);
 	}
 
+	// parametros para a thread cliente do servidor central
 	struct central_server_thread_params *param2 = (struct central_server_thread_params *)malloc(sizeof(struct central_server_thread_params));
 	param2->hostnm = hostnm;
 	param2->central_port = port; 
 	param2->this_port = ntohs(g_cliente.sock_info_server_p2p.sin_port); 
 	strcpy(param2->celular, g_cliente.celular);
+	
+	// dispara a thread que se conecta ao servidor central
 	pthread_t t2;
 	if (pthread_create(&t2, NULL, &central_server_thread, (void*)param2)) {
 		perror("pthread_create()");
@@ -386,6 +396,7 @@ int main(int argc, char **argv) {
 	}
 
 	while (1) {
+		// aguarda enquanto nao estiver conectado ao servidor central
 		if (g_cliente.connected == 0) {
 			continue;
 		}
@@ -395,9 +406,11 @@ int main(int argc, char **argv) {
 		scanf("%s", tmp);
 
 		if (!strcmp(tmp, "connect")) {
+			// connect [CELULAR]: conecta-se a outro peer
 			char celular[20];
 			scanf("%s", celular);
 
+			// constroi o pacto de requisicao de conexao a outro peer
 			struct packet_query_info qr_pkt;
 			strcpy(qr_pkt.celular, celular);
 			BUILD_PACKET(packet_query_info, MSG_QUERY_INFO, raw_pkt_send, qr_pkt);
@@ -407,19 +420,22 @@ int main(int argc, char **argv) {
 				exit(6);
 			}
 		} else if (!strcmp(tmp, "connections")) {
+			// lista as conexoes disponiveis
 			struct linked_list_node *node = g_cliente.lista_conexoes.head;
 	
 			while (node) {
 				struct user *u = (struct user*)node->data;
 				printf("%s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
 				node = node->next;
-			}	
+			}
 		} else if (!strcmp(tmp, "sendmsg")) {
+			// sendmsg [CELULAR] [MENSAGEM]: manda uma mensagem a um peer conectado
 			char celular[20];
 			scanf("%s", celular);
 			char msg[20];
 			scanf("%s", msg);
 
+			// busca o celular na lista de conexoes
 			pthread_mutex_lock(&lista_conexoes_lock);
 			struct user tmp;
 			strcpy(tmp.celular,celular);
@@ -427,9 +443,11 @@ int main(int argc, char **argv) {
 			pthread_mutex_unlock(&lista_conexoes_lock);
 
 			if (node) {
+				// celular existe
 				struct user *u = (struct user*)node->data;
 				printf("Enviando mensagem para %s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
 
+				// constroi o pacote de mensagem a outro peer
 				struct packet_text msg_pkt;
 				strcpy(msg_pkt.text, msg);
 				BUILD_PACKET(packet_text, MSG_TEXT, raw_pkt_send, msg_pkt);
@@ -439,6 +457,7 @@ int main(int argc, char **argv) {
 					exit(6);
 				}
 			} else {
+				// celular nao existe na lista de conexoes
 				printf("NAO ENCONTRADO\n");
 			}
 		}
