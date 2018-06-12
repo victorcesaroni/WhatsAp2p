@@ -7,14 +7,6 @@
 	_LOGIC_NAME.msg_type = _MSG_TYPE; \
 	memcpy(&_LOGIC_NAME.data, &_DATA, sizeof(struct _TYPE));
 
-enum MSG_TYPE {
-	MSG_HAND_SHAKE,
-	MSG_QUERY_INFO,
-	MSG_QUERY_RESPONSE,
-	MSG_TEXT,
-	MSG_FILE_PART,
-};
-
 struct logic_packet {
 	int size; // tamanho dos dados validos do campo data
 	char msg_type; // tipo da mensagem

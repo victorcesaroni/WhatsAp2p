@@ -460,6 +460,9 @@ int main(int argc, char **argv) {
 				// celular nao existe na lista de conexoes
 				printf("NAO ENCONTRADO\n");
 			}
+		} else if (!strcmp(tmp, "sendimg")) {
+			// sendimg [CELULAR] [MENSAGEM]: manda uma imagem a um peer conectado
+			
 		}
 	}
 	
