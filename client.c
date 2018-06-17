@@ -14,6 +14,7 @@ client.c
 #include <pthread.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <sys/stat.h>
 
 #include "networklib.h"
 #include "shareddefs.h"
@@ -36,6 +37,7 @@ struct cliente {
 	struct sockaddr_in sock_info_central;
 	struct sockaddr_in sock_info_server_p2p;
 	int connected;
+	int waiting_connection;
 };
 
 struct central_server_thread_params {
@@ -119,6 +121,7 @@ void *central_server_thread(void *p) {
 
 			if (pkt->connected  == 0) {
 				printf("[CSCP2P] %s nao esta conectado\n", pkt->celular);
+				g_cliente.waiting_connection = 0;
 			} else {
 				printf("[CSCP2P] %s esta conectado e esta escutando em %s:%d\n", pkt->celular, inet_ntoa(pkt->ip), pkt->port_p2p);
 			
@@ -172,7 +175,7 @@ void packet_handler(struct logic_packet *raw_pkt, struct user *c, const char *fu
 			printf("Nao foi possivel abrir o arquivo de download");
 			return;
 		}
-			
+
 		for (i = 0; i < pkt->file_parts; i++) {
 			struct logic_packet raw_pkt2;
 			if (recv_packet(c->socket, &raw_pkt2) < 0) {
@@ -239,6 +242,7 @@ void *p2p_client_thread(void *p) {
 				exit(6);
 			}
 			c->connected = 1;
+			g_cliente.waiting_connection = 0;
 			continue;
 		}
 
@@ -387,6 +391,19 @@ void *server_thread(void *p) {
     printf("[SP2P] encerrado.\n");
 }
 
+void send_connect_query(char *celular) {
+	g_cliente.waiting_connection = 1;
+	struct packet_query_info qr_pkt;
+	strcpy(qr_pkt.celular, celular);
+	BUILD_PACKET(packet_query_info, MSG_QUERY_INFO, raw_pkt_send, qr_pkt);
+
+	if (send_packet(g_cliente.sock_central_server, &raw_pkt_send) == -1) {
+		g_cliente.waiting_connection = 0;
+		perror("send()");
+		exit(6);
+	}
+}
+
 struct user *getuserbycel(char *celular) {
 	pthread_mutex_lock(&lista_conexoes_lock);
 	struct user tmp;
@@ -394,9 +411,130 @@ struct user *getuserbycel(char *celular) {
 	struct linked_list_node *node = buscar_lista(&g_cliente.lista_conexoes, cliente_comparador, (void*)&tmp); 
 	pthread_mutex_unlock(&lista_conexoes_lock);
 
+	if (!node) {
+		send_connect_query(celular);
+		while (g_cliente.waiting_connection == 1) {
+			continue;
+		}
+
+		pthread_mutex_lock(&lista_conexoes_lock);
+		struct user tmp;
+		strcpy(tmp.celular,celular);
+		node = buscar_lista(&g_cliente.lista_conexoes, cliente_comparador, (void*)&tmp); 
+		pthread_mutex_unlock(&lista_conexoes_lock);
+	}
+
 	if (node)
 		return (struct user*)node->data;
 	return NULL;
+}
+
+void getuserdatapath(char *celular, char *file_path) {
+	strcpy(file_path, "user_data_");	
+	strcat(file_path, celular);
+
+	struct stat st;
+	if (stat(file_path, &st) == -1) {
+	    mkdir(file_path, 0700);
+	}
+}
+
+void getgrouppath(char *celular, char *grupo, char *file_path) {
+	getuserdatapath(celular, file_path);
+
+	strcat(file_path, "/group_");
+	strcat(file_path, grupo);
+
+	struct stat st;
+	if (stat(file_path, &st) == -1) {
+	    mkdir(file_path, 0700);
+	}
+}
+
+void send_text_message(char *celular, char *message) {
+	struct user *u = (struct user*)getuserbycel(celular);
+			
+	if (u) {
+		printf("Enviando mensagem para %s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
+
+		// constroi o pacote de mensagem a outro peer
+		struct packet_text msg_pkt;
+		strcpy(msg_pkt.text, message);
+		BUILD_PACKET(packet_text, MSG_TEXT, raw_pkt_send, msg_pkt);
+
+		if (send_packet(u->socket, &raw_pkt_send) == -1) {
+			perror("send()");
+			exit(6);
+		}
+	} else {
+		// celular nao existe na lista de conexoes
+		printf("NAO ENCONTRADO\n");
+	}
+}
+
+void send_image(char *celular, char *image_name) {
+	int i;
+	// as imagens devem estar na pasta upload
+	struct user *u = (struct user*)getuserbycel(celular);
+
+	if (u) {
+		printf("Enviando imagem para %s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
+		
+		char file_path[75];				
+		strcpy(file_path, "upload/");
+		strcat(file_path, image_name);
+
+		FILE *fp = fopen(file_path, "rb");
+
+		if (fp) {
+			fseek(fp, 0L, SEEK_END);
+			unsigned long size = ftell(fp);
+			fseek(fp, 0L, SEEK_SET);
+			int file_parts = size / MAX_PACKET_DATA_SIZE;
+			if (size % MAX_PACKET_DATA_SIZE != 0) {
+				file_parts++;
+			}
+
+			printf("SIZE: %lu\n", size);
+			printf("PARTS: %d\n", file_parts);
+
+			// constroi o pacote de infos de imagem a outro peer		
+			struct packet_begin_transfer bt_pkt;
+			strcpy(bt_pkt.file_name, image_name);
+			bt_pkt.file_parts = file_parts;
+			bt_pkt.file_size = size;
+			BUILD_PACKET(packet_begin_transfer, MSG_BEGIN_TRANSFER, raw_pkt_send, bt_pkt);
+
+			if (send_packet(u->socket, &raw_pkt_send) == -1) {
+				perror("send()");
+				exit(6);
+			}
+
+			// envia as partes do arquivo
+			for (i = 0; i < file_parts; i++) {
+				struct packet_file_part fp_pkt;
+
+				int read = fread(fp_pkt.file_data, 1, MAX_PACKET_DATA_SIZE, fp);
+			
+				BUILD_PACKET(packet_file_part, MSG_FILE_PART, raw_pkt_send2, fp_pkt);
+				raw_pkt_send2.size = read;
+
+				if (send_packet(u->socket, &raw_pkt_send2) == -1) {
+					perror("send()");
+					exit(6);
+				}
+				printf("ENVIADO: %d/%d (%dB)\n", i+1, file_parts, raw_pkt_send2.size);
+			}
+
+			fclose(fp);			
+		} else {
+			// arquivo nao existe 
+			printf("ARQUIVO NAO ENCONTRADO\n");
+		}
+	} else {
+		// celular nao existe na lista de conexoes
+		printf("NAO ENCONTRADO\n");
+	}
 }
 
 int main(int argc, char **argv) {	
@@ -465,14 +603,26 @@ int main(int argc, char **argv) {
 			char celular[20];
 			scanf("%s", celular);
 
-			// constroi o pacto de requisicao de conexao a outro peer
-			struct packet_query_info qr_pkt;
-			strcpy(qr_pkt.celular, celular);
-			BUILD_PACKET(packet_query_info, MSG_QUERY_INFO, raw_pkt_send, qr_pkt);
+			send_connect_query(celular);
+		} else if (!strcmp(tmp, "connectall")) {
+			// connectall conecta-se a todos os contatos
+			char celular[20];
+			char file_path[256];
+			getuserdatapath(g_cliente.celular, file_path);
 
-			if (send_packet(g_cliente.sock_central_server, &raw_pkt_send) == -1) {
-				perror("send()");
-				exit(6);
+			strcat(file_path, "/contacts.txt");
+			FILE *fp = fopen(file_path, "r");
+
+			if (fp) {
+				printf("Lendo contatos em %s\n", file_path);
+
+				while (fgets(celular, 20, fp) != NULL) {
+					celular[strlen(celular)-1] = '\0'; //remove \n
+					send_connect_query(celular);
+				}				
+				fclose(fp);
+			} else {
+				printf("Nao foi possivel abrir o arquivo %s\n", file_path);
 			}
 		} else if (!strcmp(tmp, "connections")) {
 			// lista as conexoes disponiveis
@@ -489,25 +639,32 @@ int main(int argc, char **argv) {
 			scanf("%s", celular);
 			char msg[20];
 			scanf("%s", msg);
-		
-			struct user *u = (struct user*)getuserbycel(celular);
-			
-			if (u) {
-				printf("Enviando mensagem para %s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
 
-				// constroi o pacote de mensagem a outro peer
-				struct packet_text msg_pkt;
-				strcpy(msg_pkt.text, msg);
-				BUILD_PACKET(packet_text, MSG_TEXT, raw_pkt_send, msg_pkt);
+			send_text_message(celular, msg);
+		} else if (!strcmp(tmp, "sendgmsg")) {
+			// sendgmsg [GRUPO] [MENSAGEM]: manda uma mensagem a um um grupo
+			char grupo[50];
+			scanf("%s", grupo);
+			char msg[20];
+			scanf("%s", msg);
 
-				if (send_packet(u->socket, &raw_pkt_send) == -1) {
-					perror("send()");
-					exit(6);
-				}
+			char file_path[256];
+			getgrouppath(g_cliente.celular, grupo, file_path);
+
+			strcat(file_path, "/contacts.txt");
+			FILE *fp = fopen(file_path, "r");
+
+			if (fp) {
+				printf("Lendo contatos em %s\n", file_path);
+				char celular[20];
+				while (fgets(celular, 20, fp) != NULL) {
+					celular[strlen(celular)-1] = '\0'; //remove \n					
+					send_text_message(celular, msg);
+				}				
+				fclose(fp);
 			} else {
-				// celular nao existe na lista de conexoes
-				printf("NAO ENCONTRADO\n");
-			}
+				printf("Nao foi possivel abrir o arquivo %s\n", file_path);
+			}		
 		} else if (!strcmp(tmp, "sendimg")) {
 			// sendimg [CELULAR] [MENSAGEM]: manda uma imagem a um peer conectado
 			char celular[20];
@@ -515,71 +672,77 @@ int main(int argc, char **argv) {
 			char img[64];
 			scanf("%s", img);
 		
-			struct user *u = (struct user*)getuserbycel(celular);
+			send_image(celular, img);
+		} else if (!strcmp(tmp, "sendgimg")) {
+			// sendgimg [GRUPO] [IMAGEM]: manda uma imagem a um um grupo
+			char grupo[50];
+			scanf("%s", grupo);
+			char img[64];
+			scanf("%s", img);
 
-			if (u) {
-				printf("Enviando imagem para %s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
-				
-				char file_path[75];				
-				strcpy(file_path, "upload/");
-				strcat(file_path, img);
+			char file_path[256];
+			getgrouppath(g_cliente.celular, grupo, file_path);
 
-				FILE *fp = fopen(file_path, "rb");
+			strcat(file_path, "/contacts.txt");
+			FILE *fp = fopen(file_path, "r");
 
-				if (fp) {
-					fseek(fp, 0L, SEEK_END);
-					unsigned long size = ftell(fp);
-					fseek(fp, 0L, SEEK_SET);
-					int file_parts = size / MAX_PACKET_DATA_SIZE;
-					if (size % MAX_PACKET_DATA_SIZE != 0) {
-						file_parts++;
-					}
-
-					printf("SIZE: %lu\n", size);
-					printf("PARTS: %d\n", file_parts);
-
-					// constroi o pacote de infos de imagem a outro peer		
-					struct packet_begin_transfer bt_pkt;
-					strcpy(bt_pkt.file_name, img);
-					bt_pkt.file_parts = file_parts;
-					bt_pkt.file_size = size;
-					BUILD_PACKET(packet_begin_transfer, MSG_BEGIN_TRANSFER, raw_pkt_send, bt_pkt);
-
-					if (send_packet(u->socket, &raw_pkt_send) == -1) {
-						perror("send()");
-						exit(6);
-					}
-
-					// envia as partes do arquivo
-					for (i = 0; i < file_parts; i++) {
-						struct packet_file_part fp_pkt;
-
-						int read = fread(fp_pkt.file_data, 1, MAX_PACKET_DATA_SIZE, fp);
-					
-						BUILD_PACKET(packet_file_part, MSG_FILE_PART, raw_pkt_send2, fp_pkt);
-						raw_pkt_send2.size = read;
-
-						if (send_packet(u->socket, &raw_pkt_send2) == -1) {
-							perror("send()");
-							exit(6);
-						}
-						printf("ENVIADO: %d/%d (%dB)\n", i+1, file_parts, raw_pkt_send2.size);
-					}
-
-					fclose(fp);			
-				} else {
-					// arquivo nao existe 
-					printf("ARQUIVO NAO ENCONTRADO\n");
-				}
+			if (fp) {
+				printf("Lendo contatos em %s\n", file_path);
+				char celular[20];
+				while (fgets(celular, 20, fp) != NULL) {
+					celular[strlen(celular)-1] = '\0'; //remove \n					
+					send_image(celular, img);
+				}				
+				fclose(fp);
 			} else {
-				// celular nao existe na lista de conexoes
-				printf("NAO ENCONTRADO\n");
+				printf("Nao foi possivel abrir o arquivo %s\n", file_path);
+			}
+		} else if (!strcmp(tmp, "addcontact")) {
+			// addcontato [CELULAR]
+			char celular[50];
+			scanf("%s", celular);
+			strcat(celular, "\n");
+
+			char file_path[256];				
+			getuserdatapath(g_cliente.celular, file_path);
+
+			strcat(file_path, "/contacts.txt");
+			FILE *fp = fopen(file_path, "a+");
+
+			if (fp) {
+				fwrite(celular, 1, strlen(celular), fp);
+				fclose(fp);
+			} else {
+				printf("Nao foi possivel abrir o arquivo %s\n", file_path);
+			}
+		} else if (!strcmp(tmp, "addgroup")) {
+			// addgroup [GRUPO] [CELULAR]
+			char grupo[50];
+			scanf("%s", grupo);
+			char celular[50];
+			scanf("%s", celular);
+			strcat(celular, "\n");
+
+			char file_path[256];			
+			getgrouppath(g_cliente.celular, grupo, file_path);
+
+			strcat(file_path, "/contacts.txt");
+			FILE *fp = fopen(file_path, "a+");
+
+			if (fp) {
+				fwrite(celular, 1, strlen(celular), fp);
+				fclose(fp);
+			} else {
+				printf("Nao foi possivel abrir o arquivo %s\n", file_path);
 			}
 		} else {
-			printf("connect [CELULAR]\n");
-			printf("sendmsg [CELULAR] [MENSAGEM]\n");
-			printf("sendimg [CELULAR] [IMAGEM]\n");
-			printf("connections\n");
+			printf("connectall (conecta-se aos seus contatos)\n");
+			printf("connect [CELULAR] (conecta-se a um celular)\n");
+			printf("sendmsg [CELULAR] [MENSAGEM] (envia um sms)\n");
+			printf("sendimg [CELULAR] [IMAGEM] (envia uma imagem)\n");
+			printf("addcontact [CELULAR] (adiciona um contato)\n");
+			printf("addgroup [GRUPO] [CELULAR] (adiciona um ceular a um grupo)\n");
+			printf("connections (lista as conexoes ativas)\n");
 		}
 	}
 	
