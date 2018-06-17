@@ -147,6 +147,54 @@ void *central_server_thread(void *p) {
     printf("[CSCP2P] Conexao com servidor central encerrada.\n");
 }
 
+void packet_handler(struct logic_packet *raw_pkt, struct user *c, const char *func) {
+	int i;
+
+	if (raw_pkt->msg_type == MSG_TEXT) {
+		struct packet_text *pkt = (struct packet_text*)&raw_pkt->data;
+		printf("[%s] [MSG_TEXT] %s: %s\n", func, c->celular, pkt->text);
+	} else if (raw_pkt->msg_type == MSG_BEGIN_TRANSFER) {
+		struct packet_begin_transfer *pkt = (struct packet_begin_transfer*)&raw_pkt->data;
+		printf("[%s] [MSG_BEGIN_TRANSFER] %s: \n", func, c->celular);
+		printf(" > file_name %s\n", pkt->file_name);
+		printf(" > file_size %lub\n", pkt->file_size);
+		printf(" > file_parts %d parts\n", pkt->file_parts);
+
+		char file_path[75];				
+		strcpy(file_path, "download/");
+		strcat(file_path, pkt->file_name);
+
+		printf("Recebendo arquivo em %s\n", file_path);
+
+		FILE *fp = fopen(file_path, "wb");
+
+		if (!fp) {
+			printf("Nao foi possivel abrir o arquivo de download");
+			return;
+		}
+			
+		for (i = 0; i < pkt->file_parts; i++) {
+			struct logic_packet raw_pkt2;
+			if (recv_packet(c->socket, &raw_pkt2) < 0) {
+				printf("%s Nao foi possivel ler um pacote\n",  __FUNCTION__);
+				return;
+			}
+		
+			if (raw_pkt2.msg_type == MSG_FILE_PART) {
+				struct packet_file_part *fp_pkt = (struct packet_file_part*)&raw_pkt2.data;
+				printf("[%s] [MSG_FILE_PART] %d/%d (%dB) \n", func, i+1, pkt->file_parts, raw_pkt2.size);
+				fwrite(fp_pkt->file_data, 1, raw_pkt2.size, fp);
+			} else {
+				printf("Recebido um pacote fora de ordem");
+				fclose(fp);
+				return;
+			}
+		}
+
+		fclose(fp);
+	}
+}
+
 // quando conectamos no servidor externo
 void *p2p_client_thread(void *p) {
 	struct user *c = (struct user*)p;
@@ -164,7 +212,7 @@ void *p2p_client_thread(void *p) {
         exit(3);
     }
 
-    printf("%s [P2PC] Aguardando conexao com o cliente %s:%d\n", __FUNCTION__, inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+    printf("%s [P2PC] Aguardando conexao com o cliente servidor %s:%d\n", __FUNCTION__, inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
     if (connect(s, (struct sockaddr *)&server, sizeof(server)) < 0)
     {
@@ -176,7 +224,7 @@ void *p2p_client_thread(void *p) {
 
 	c->connected = 0;
     
-    printf("%s [P2PC] Conexao com o cliente %s:%d estabelecida\n", __FUNCTION__, inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+    printf("%s [P2PC] Conexao com o cliente servidor %s:%d estabelecida\n", __FUNCTION__, inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
     while(1) {
     	if (c->connected == 0) {
@@ -200,11 +248,7 @@ void *p2p_client_thread(void *p) {
 			break;
 		}
 
-		if (raw_pkt.msg_type == MSG_TEXT) {
-			struct packet_text *pkt = (struct packet_text*)&raw_pkt.data;
-			printf("%s RECV MSG_TEXT\n", __FUNCTION__);
-			printf("%s [MSG] %s: %s\n", __FUNCTION__, c->celular, pkt->text);
-		}		
+		packet_handler(&raw_pkt, c, __FUNCTION__);
 	}
 
     close(s);
@@ -274,8 +318,8 @@ void *p2p_client_handler(void *p) {
 		if (recv_packet(c->socket, &raw_pkt) < 0) {
 			printf("%s [SP2P] Nao foi possivel ler um pacote\n",  __FUNCTION__);
 			break;
-		}
-		
+		}		
+
 		if (raw_pkt.msg_type == MSG_HAND_SHAKE) {
 			// pacote de identificacao do peer, marca como conectado na lista de conexoes e atualiza o celular
 			struct packet_hand_shake *pkt = (struct packet_hand_shake*)&raw_pkt.data;
@@ -283,12 +327,10 @@ void *p2p_client_handler(void *p) {
 			c->connected = 1;
 			c->port_p2p = pkt->port;
 			printf("%s [SP2P] RECV MSG_HAND_SHAKE celular:%s, conexao:%s:%d\n", __FUNCTION__,  c->celular, inet_ntoa(c->ip), c->port_p2p);
-		} else if (raw_pkt.msg_type == MSG_TEXT) {
-			// pacote de mensagem
-			struct packet_text *pkt = (struct packet_text*)&raw_pkt.data;
-			printf("%s [SP2P] RECV MSG_TEXT\n", __FUNCTION__);
-			printf("%s [SP2P] [MSG] %s: %s\n",  __FUNCTION__, c->celular, pkt->text);
-		}		
+		}
+		else {
+			packet_handler(&raw_pkt, c, __FUNCTION__);
+		}
 	}
 	
 	c->connected = 0;
@@ -345,9 +387,22 @@ void *server_thread(void *p) {
     printf("[SP2P] encerrado.\n");
 }
 
+struct user *getuserbycel(char *celular) {
+	pthread_mutex_lock(&lista_conexoes_lock);
+	struct user tmp;
+	strcpy(tmp.celular,celular);
+	struct linked_list_node *node = buscar_lista(&g_cliente.lista_conexoes, cliente_comparador, (void*)&tmp); 
+	pthread_mutex_unlock(&lista_conexoes_lock);
+
+	if (node)
+		return (struct user*)node->data;
+	return NULL;
+}
+
 int main(int argc, char **argv) {	
 	unsigned short port;                
     struct hostent *hostnm; 
+    int i;
 
 	if (argc != 4) {
 		fprintf(stderr, "Use: %s [ip_cs] [porta_cs] [celular]\n", argv[0]);
@@ -434,17 +489,10 @@ int main(int argc, char **argv) {
 			scanf("%s", celular);
 			char msg[20];
 			scanf("%s", msg);
-
-			// busca o celular na lista de conexoes
-			pthread_mutex_lock(&lista_conexoes_lock);
-			struct user tmp;
-			strcpy(tmp.celular,celular);
-			struct linked_list_node *node = buscar_lista(&g_cliente.lista_conexoes, cliente_comparador, (void*)&tmp); 
-			pthread_mutex_unlock(&lista_conexoes_lock);
-
-			if (node) {
-				// celular existe
-				struct user *u = (struct user*)node->data;
+		
+			struct user *u = (struct user*)getuserbycel(celular);
+			
+			if (u) {
 				printf("Enviando mensagem para %s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
 
 				// constroi o pacote de mensagem a outro peer
@@ -462,7 +510,76 @@ int main(int argc, char **argv) {
 			}
 		} else if (!strcmp(tmp, "sendimg")) {
 			// sendimg [CELULAR] [MENSAGEM]: manda uma imagem a um peer conectado
-			
+			char celular[20];
+			scanf("%s", celular);
+			char img[64];
+			scanf("%s", img);
+		
+			struct user *u = (struct user*)getuserbycel(celular);
+
+			if (u) {
+				printf("Enviando imagem para %s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
+				
+				char file_path[75];				
+				strcpy(file_path, "upload/");
+				strcat(file_path, img);
+
+				FILE *fp = fopen(file_path, "rb");
+
+				if (fp) {
+					fseek(fp, 0L, SEEK_END);
+					unsigned long size = ftell(fp);
+					fseek(fp, 0L, SEEK_SET);
+					int file_parts = size / MAX_PACKET_DATA_SIZE;
+					if (size % MAX_PACKET_DATA_SIZE != 0) {
+						file_parts++;
+					}
+
+					printf("SIZE: %lu\n", size);
+					printf("PARTS: %d\n", file_parts);
+
+					// constroi o pacote de infos de imagem a outro peer		
+					struct packet_begin_transfer bt_pkt;
+					strcpy(bt_pkt.file_name, img);
+					bt_pkt.file_parts = file_parts;
+					bt_pkt.file_size = size;
+					BUILD_PACKET(packet_begin_transfer, MSG_BEGIN_TRANSFER, raw_pkt_send, bt_pkt);
+
+					if (send_packet(u->socket, &raw_pkt_send) == -1) {
+						perror("send()");
+						exit(6);
+					}
+
+					// envia as partes do arquivo
+					for (i = 0; i < file_parts; i++) {
+						struct packet_file_part fp_pkt;
+
+						int read = fread(fp_pkt.file_data, 1, MAX_PACKET_DATA_SIZE, fp);
+					
+						BUILD_PACKET(packet_file_part, MSG_FILE_PART, raw_pkt_send2, fp_pkt);
+						raw_pkt_send2.size = read;
+
+						if (send_packet(u->socket, &raw_pkt_send2) == -1) {
+							perror("send()");
+							exit(6);
+						}
+						printf("ENVIADO: %d/%d (%dB)\n", i+1, file_parts, raw_pkt_send2.size);
+					}
+
+					fclose(fp);			
+				} else {
+					// arquivo nao existe 
+					printf("ARQUIVO NAO ENCONTRADO\n");
+				}
+			} else {
+				// celular nao existe na lista de conexoes
+				printf("NAO ENCONTRADO\n");
+			}
+		} else {
+			printf("connect [CELULAR]\n");
+			printf("sendmsg [CELULAR] [MENSAGEM]\n");
+			printf("sendimg [CELULAR] [IMAGEM]\n");
+			printf("connections\n");
 		}
 	}
 	
