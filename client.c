@@ -780,7 +780,9 @@ int main(int argc, char **argv) {
 			printf("connectall (conecta-se aos seus contatos)\n");
 			printf("connect [CELULAR] (conecta-se a um celular)\n");
 			printf("sendmsg [CELULAR] [MENSAGEM] (envia um sms)\n");
+			printf("sendgmsg [GRUPO] [MENSAGEM] (envia uma mensagem a um grupo)\n");
 			printf("sendimg [CELULAR] [IMAGEM] (envia uma imagem)\n");
+			printf("sendgimg [GRUPO] [IMAGEM] (envia uma imagem a um grupo)\n");
 			printf("addcontact [CELULAR] (adiciona um contato)\n");
 			printf("addgroup [GRUPO] [CELULAR] (adiciona um ceular a um grupo)\n");
 			printf("connections (lista as conexoes ativas)\n");
