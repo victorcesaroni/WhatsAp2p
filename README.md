@@ -1,7 +1,7 @@
 # whatsap2p
 RCA Projeto 2
 
-[!Exemplo](projeto2_redes_a_ex.png)
+[!Exemplo](projeto2_redes_a_ex.png?raw=true "Exemplo")
 
 
 # Compilacao
