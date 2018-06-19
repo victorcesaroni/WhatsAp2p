@@ -73,35 +73,35 @@ static pthread_mutex_t lista_conexoes_lock;
 void *central_server_thread(void *p) {
 	struct central_server_thread_params *param = (struct central_server_thread_params*)p;
 
-    struct sockaddr_in server; 
-    int s;
+	struct sockaddr_in server; 
+	int s;
 
-    server.sin_family      = AF_INET;
-    server.sin_port        = htons(param->central_port);
-    server.sin_addr.s_addr = *((unsigned long *)param->hostnm->h_addr);
+	server.sin_family      = AF_INET;
+	server.sin_port        = htons(param->central_port);
+	server.sin_addr.s_addr = *((unsigned long *)param->hostnm->h_addr);
 
-    if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-    {
-        perror("socket() central server");
-        exit(3);
-    }
+	if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+	{
+		perror("socket() central server");
+		exit(3);
+	}
 
-    LOG("Aguardando conexao com o servidor central %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+	LOG("Aguardando conexao com o servidor central %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
-    if (connect(s, (struct sockaddr *)&server, sizeof(server)) < 0)
-    {
-        perror("connect() central server");
-        exit(4);
-    }    
+	if (connect(s, (struct sockaddr *)&server, sizeof(server)) < 0)
+	{
+		perror("connect() central server");
+		exit(4);
+	}    
 
 	g_cliente.sock_central_server = s;
 	g_cliente.sock_info_central = server;
 	g_cliente.connected = 0;
-    
-    LOG("Conexao com o servidor central %s:%d estabelecida\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+	
+	LOG("Conexao com o servidor central %s:%d estabelecida\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
-    while(1) {
-    	if (g_cliente.connected == 0) {
+	while(1) {
+		if (g_cliente.connected == 0) {
 			struct packet_hand_shake hs_pkt;
 			strcpy(hs_pkt.celular, param->celular);
 			hs_pkt.port = param->this_port;
@@ -131,7 +131,7 @@ void *central_server_thread(void *p) {
 				g_cliente.waiting_connection = 0;
 			} else {
 				LOG("%s esta conectado e esta escutando em %s:%d\n", pkt->celular, inet_ntoa(pkt->ip), pkt->port_p2p);
-			
+				
 				struct user *c = (struct user*)malloc(sizeof(struct user));
 				strcpy(c->celular, pkt->celular);
 				c->ip = pkt->ip;
@@ -151,10 +151,10 @@ void *central_server_thread(void *p) {
 		}
 	}
 
-    close(s);
-    free(p);
+	close(s);
+	free(p);
 
-    LOG("Conexao com servidor central encerrada.\n");
+	LOG("Conexao com servidor central encerrada.\n");
 }
 
 void packet_handler(struct logic_packet *raw_pkt, struct user *c, const char *func) {
@@ -190,7 +190,7 @@ void packet_handler(struct logic_packet *raw_pkt, struct user *c, const char *fu
 				printf("%s Nao foi possivel ler um pacote\n",  __FUNCTION__);
 				return;
 			}
-		
+			
 			if (raw_pkt2.msg_type == MSG_FILE_PART) {
 				struct packet_file_part *fp_pkt = (struct packet_file_part*)&raw_pkt2.data;
 				printf("[%s] [MSG_FILE_PART] %d/%d (%dB) \n", func, i+1, pkt->file_parts, raw_pkt2.size);
@@ -230,35 +230,35 @@ void packet_handler(struct logic_packet *raw_pkt, struct user *c, const char *fu
 void *p2p_client_thread(void *p) {
 	struct user *c = (struct user*)p;
 
-    struct sockaddr_in server; 
-    int s;
+	struct sockaddr_in server; 
+	int s;
 
-    server.sin_family      = AF_INET;
-    server.sin_port        = htons(c->port_p2p);
-    server.sin_addr 	   = c->ip;
+	server.sin_family      = AF_INET;
+	server.sin_port        = htons(c->port_p2p);
+	server.sin_addr 	   = c->ip;
 
-    if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-    {
-        perror("socket() p2p_client_thread");
-        exit(3);
-    }
+	if ((s = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+	{
+		perror("socket() p2p_client_thread");
+		exit(3);
+	}
 
-    LOG("Aguardando conexao com o cliente servidor %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+	LOG("Aguardando conexao com o cliente servidor %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
-    if (connect(s, (struct sockaddr *)&server, sizeof(server)) < 0)
-    {
-        perror("connect() p2p_client_thread");
-        exit(4);
-    } 
+	if (connect(s, (struct sockaddr *)&server, sizeof(server)) < 0)
+	{
+		perror("connect() p2p_client_thread");
+		exit(4);
+	} 
 
-    c->socket = s;
+	c->socket = s;
 
 	c->connected = 0;
-    
-    LOG("Conexao com o cliente servidor %s:%d estabelecida\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+	
+	LOG("Conexao com o cliente servidor %s:%d estabelecida\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
-    while(1) {
-    	if (c->connected == 0) {
+	while(1) {
+		if (c->connected == 0) {
 			struct packet_hand_shake hs_pkt;
 			strcpy(hs_pkt.celular, g_cliente.celular);
 			hs_pkt.port = ntohs(g_cliente.sock_info_server_p2p.sin_port);
@@ -274,7 +274,7 @@ void *p2p_client_thread(void *p) {
 			continue;
 		}
 
-    	struct logic_packet raw_pkt;
+		struct logic_packet raw_pkt;
 		if (recv_packet(s, &raw_pkt) < 0) {
 			LOG("Nao foi possivel ler um pacote\n");
 			break;
@@ -283,7 +283,7 @@ void *p2p_client_thread(void *p) {
 		packet_handler(&raw_pkt, c, __FUNCTION__);
 	}
 
-    close(s);
+	close(s);
 
 	pthread_mutex_lock(&lista_conexoes_lock);
 	remover_lista(&g_cliente.lista_conexoes, &cliente_comparador, (void*)c);
@@ -291,7 +291,7 @@ void *p2p_client_thread(void *p) {
 	memset(c, 0, sizeof(struct user));
 	free(c);
 
-    LOG("Conexao com o cliente encerrada.\n");
+	LOG("Conexao com o cliente encerrada.\n");
 }
 
 // inicia servidor local
@@ -313,7 +313,7 @@ void init_server() {
 		perror("setsockopt()");
 		exit(4);    
 	}
-		
+	
 	server.sin_family = AF_INET;   
 	server.sin_port   = 0; // obtem uma porta disponivel
 	server.sin_addr.s_addr = INADDR_ANY;
@@ -330,7 +330,7 @@ void init_server() {
 
 	socklen_t len = sizeof(server);
 	if (getsockname(s, (struct sockaddr *)&server, &len) == -1)
-	    perror("getsockname()");
+		perror("getsockname()");
 
 	g_cliente.sock_server_p2p = s;
 	g_cliente.sock_info_server_p2p = server;
@@ -414,7 +414,7 @@ void *server_thread(void *p) {
 
 	close(s);
 
-    LOG("Cliente encerrado.\n");
+	LOG("Cliente encerrado.\n");
 }
 
 void send_connect_query(char *celular) {
@@ -461,7 +461,7 @@ void getuserdatapath(char *celular, char *file_path) {
 
 	struct stat st;
 	if (stat(file_path, &st) == -1) {
-	    mkdir(file_path, 0700);
+		mkdir(file_path, 0700);
 	}
 }
 
@@ -473,7 +473,7 @@ void getgrouppath(char *celular, char *grupo, char *file_path) {
 
 	struct stat st;
 	if (stat(file_path, &st) == -1) {
-	    mkdir(file_path, 0700);
+		mkdir(file_path, 0700);
 	}
 }
 
@@ -484,13 +484,13 @@ void getuserfilepath(char *celular, char *file_path) {
 
 	struct stat st;
 	if (stat(file_path, &st) == -1) {
-	    mkdir(file_path, 0700);
+		mkdir(file_path, 0700);
 	}
 }
 
 void send_text_message(char *celular, char *message) {
 	struct user *u = (struct user*)getuserbycel(celular);
-			
+	
 	if (u) {
 		//LOG("Enviando mensagem para %s (em %s:%d)\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
 		LOG("%s -> %s: %s\n", g_cliente.celular, u->celular, message);
@@ -554,7 +554,7 @@ void send_image(char *celular, char *image_name) {
 				struct packet_file_part fp_pkt;
 
 				int read = fread(fp_pkt.file_data, 1, MAX_PACKET_DATA_SIZE, fp);
-			
+				
 				BUILD_PACKET(packet_file_part, MSG_FILE_PART, raw_pkt_send2, fp_pkt);
 				raw_pkt_send2.size = read;
 
@@ -578,8 +578,8 @@ void send_image(char *celular, char *image_name) {
 
 int main(int argc, char **argv) {	
 	unsigned short port;                
-    struct hostent *hostnm; 
-    int i;
+	struct hostent *hostnm; 
+	int i;
 
 	if (argc != 4) {
 		fprintf(stderr, "Use: %s [ip_cs] [porta_cs] [celular]\n", argv[0]);
@@ -591,12 +591,12 @@ int main(int argc, char **argv) {
 		exit(1);
 	}
 
-    hostnm = gethostbyname(argv[1]);
-    if (hostnm == (struct hostent *) 0)
-    {
-        fprintf(stderr, "gethostbyname failed\n");
-        exit(2);
-    }
+	hostnm = gethostbyname(argv[1]);
+	if (hostnm == (struct hostent *) 0)
+	{
+		fprintf(stderr, "gethostbyname failed\n");
+		exit(2);
+	}
 
 	port = (unsigned short)atoi(argv[2]);
 	strcpy(g_cliente.celular, argv[3]);
@@ -668,7 +668,7 @@ int main(int argc, char **argv) {
 		} else if (!strcmp(tmp, "connections")) {
 			// lista as conexoes disponiveis
 			struct linked_list_node *node = g_cliente.lista_conexoes.head;
-	
+			
 			while (node) {
 				struct user *u = (struct user*)node->data;
 				printf("%s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
@@ -712,7 +712,7 @@ int main(int argc, char **argv) {
 			scanf("%s", celular);
 			char img[64];
 			scanf("%s", img);
-		
+			
 			send_image(celular, img);
 		} else if (!strcmp(tmp, "sendgimg")) {
 			// sendgimg [GRUPO] [IMAGEM]: manda uma imagem a um um grupo
