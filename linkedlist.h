@@ -1,3 +1,12 @@
+/* 
+* linkedlist.h
+* REDES A - PROJETO 2: 
+* WHATSAP2P
+* DIOGO ESTEVES FURTADO 15153927
+* LEONARDO RODRIGUES GUISSI 15108244
+* VICTOR FERNANDO CESARONI 15593866
+*/
+
 struct linked_list_node {
 	void *data;
 	struct linked_list_node *next;

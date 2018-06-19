@@ -1,5 +1,10 @@
 /* 
-client.c
+* client.c
+* REDES A - PROJETO 2: 
+* WHATSAP2P
+* DIOGO ESTEVES FURTADO 15153927
+* LEONARDO RODRIGUES GUISSI 15108244
+* VICTOR FERNANDO CESARONI 15593866
 */
 
 #include <stdio.h>
@@ -97,7 +102,7 @@ void *central_server_thread(void *p) {
 	g_cliente.sock_central_server = s;
 	g_cliente.sock_info_central = server;
 	g_cliente.connected = 0;
-	
+
 	LOG("Conexao com o servidor central %s:%d estabelecida\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
 	while(1) {
@@ -131,7 +136,7 @@ void *central_server_thread(void *p) {
 				g_cliente.waiting_connection = 0;
 			} else {
 				LOG("%s esta conectado e esta escutando em %s:%d\n", pkt->celular, inet_ntoa(pkt->ip), pkt->port_p2p);
-				
+
 				struct user *c = (struct user*)malloc(sizeof(struct user));
 				strcpy(c->celular, pkt->celular);
 				c->ip = pkt->ip;
@@ -190,7 +195,7 @@ void packet_handler(struct logic_packet *raw_pkt, struct user *c, const char *fu
 				printf("%s Nao foi possivel ler um pacote\n",  __FUNCTION__);
 				return;
 			}
-			
+
 			if (raw_pkt2.msg_type == MSG_FILE_PART) {
 				struct packet_file_part *fp_pkt = (struct packet_file_part*)&raw_pkt2.data;
 				printf("[%s] [MSG_FILE_PART] %d/%d (%dB) \n", func, i+1, pkt->file_parts, raw_pkt2.size);
@@ -254,7 +259,7 @@ void *p2p_client_thread(void *p) {
 	c->socket = s;
 
 	c->connected = 0;
-	
+
 	LOG("Conexao com o cliente servidor %s:%d estabelecida\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
 	while(1) {
@@ -313,7 +318,7 @@ void init_server() {
 		perror("setsockopt()");
 		exit(4);    
 	}
-	
+
 	server.sin_family = AF_INET;   
 	server.sin_port   = 0; // obtem uma porta disponivel
 	server.sin_addr.s_addr = INADDR_ANY;
@@ -490,7 +495,7 @@ void getuserfilepath(char *celular, char *file_path) {
 
 void send_text_message(char *celular, char *message) {
 	struct user *u = (struct user*)getuserbycel(celular);
-	
+
 	if (u) {
 		//LOG("Enviando mensagem para %s (em %s:%d)\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
 		LOG("%s -> %s: %s\n", g_cliente.celular, u->celular, message);
@@ -554,7 +559,7 @@ void send_image(char *celular, char *image_name) {
 				struct packet_file_part fp_pkt;
 
 				int read = fread(fp_pkt.file_data, 1, MAX_PACKET_DATA_SIZE, fp);
-				
+
 				BUILD_PACKET(packet_file_part, MSG_FILE_PART, raw_pkt_send2, fp_pkt);
 				raw_pkt_send2.size = read;
 
@@ -668,7 +673,7 @@ int main(int argc, char **argv) {
 		} else if (!strcmp(tmp, "connections")) {
 			// lista as conexoes disponiveis
 			struct linked_list_node *node = g_cliente.lista_conexoes.head;
-			
+
 			while (node) {
 				struct user *u = (struct user*)node->data;
 				printf("%s %s:%d\n", u->celular, inet_ntoa(u->ip), u->port_p2p);
@@ -712,7 +717,7 @@ int main(int argc, char **argv) {
 			scanf("%s", celular);
 			char img[64];
 			scanf("%s", img);
-			
+
 			send_image(celular, img);
 		} else if (!strcmp(tmp, "sendgimg")) {
 			// sendgimg [GRUPO] [IMAGEM]: manda uma imagem a um um grupo

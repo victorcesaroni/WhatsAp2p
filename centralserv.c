@@ -1,5 +1,10 @@
 /* 
-centralserv.c
+* centralserv.c
+* REDES A - PROJETO 2: 
+* WHATSAP2P
+* DIOGO ESTEVES FURTADO 15153927
+* LEONARDO RODRIGUES GUISSI 15108244
+* VICTOR FERNANDO CESARONI 15593866
 */
 
 #include <stdio.h>
@@ -177,7 +182,7 @@ int main(int argc, char **argv) {
 		perror("setsockopt()");
 		exit(4);    
 	}
-	
+
 	server.sin_family = AF_INET;   
 	server.sin_port   = htons(port);       
 	server.sin_addr.s_addr = INADDR_ANY;
