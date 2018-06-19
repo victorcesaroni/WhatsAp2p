@@ -1,8 +1,8 @@
-# whatsap2p
+# WhatsAP2P
 RCA Projeto 2
 
-[!Exemplo](projeto2_redes_a_ex.png?raw=true "Exemplo")
-
+# Exemplo
+<img src="projeto2_redes_a_ex.png"/>
 
 # Compilacao
 make
